@@ -6,6 +6,8 @@ from scipy.fftpack import fft
 import scipy.io as scio
 import math
 import os
+from pathlib import Path
+
 
 def wgn(x, snr):
     Ps = np.sum(abs(x)**2,axis=1)/len(x)
@@ -100,20 +102,16 @@ def data_load(root_path, datasetname, domain_label):
 
 
 def load_training(dataset1,dataset2,dataset3,batch_size, kwargs):
-
-
-
+    project_root = Path(__file__).parent.parent.parent
     class_num=3
 
-    datasetPath = 'F:/PhdDoc/06Code/DT/Dataset/'
-    root_path1 = datasetPath + dataset1 + '/PerK1Revolution.mat'
-    root_path2 = datasetPath + dataset2 + '/PerK1Revolution.mat'
-    root_path3 = datasetPath + dataset3 + '/PerK1Revolution.mat'
+    root_path1 = project_root / "Dataset" / dataset1 / "PerK1Revolution.mat"
+    root_path2 = project_root / "Dataset" / dataset2 / "PerK1Revolution.mat"
+    root_path3 = project_root / "Dataset" / dataset3 / "PerK1Revolution.mat"
 
-
-    train_fea_1, train_label_1 = data_load(root_path1, dataset1, domain_label=0)
-    train_fea_2, train_label_2 = data_load(root_path2, dataset2, domain_label=1)
-    train_fea_3, train_label_3 = data_load(root_path3, dataset3, domain_label=2)
+    train_fea_1, train_label_1 = data_load(str(root_path1), dataset1, domain_label=0)
+    train_fea_2, train_label_2 = data_load(str(root_path2), dataset2, domain_label=1)
+    train_fea_3, train_label_3 = data_load(str(root_path3), dataset3, domain_label=2)
 
 
     train_fea = np.vstack((train_fea_1, train_fea_2, train_fea_3))
@@ -138,10 +136,10 @@ def load_testing( dataset,batch_size, kwargs):
 
     class_num = 3
 
-    datasetPath = 'F:/PhdDoc/06Code/DT/Dataset/'
-    root_path1 = datasetPath + dataset + '/PerK1Revolution.mat'
+    project_root = Path(__file__).parent.parent.parent  # 获取项目根目录 (../../)
+    root_path1 = project_root / "Dataset" / dataset / "PerK1Revolution.mat"
 
-    train_fea, train_label = data_load(root_path1, dataset, domain_label=3)
+    train_fea, train_label = data_load(str(root_path1), dataset, domain_label=3)
 
     train_label = train_label.long()
     train_fea = torch.from_numpy(train_fea)

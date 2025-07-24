@@ -12,7 +12,7 @@ import random
 from utils import mmd_rbf_noaccelerate
 
 from Utility import evaluate_model as test_model
-from Utility import visualize_features_multidomain, plot_confusion_matrix_from_data
+from Utility import visualize_features_multidomain, plotly_visualize_features_multidomain_3d, plot_confusion_matrix_from_data
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -94,7 +94,7 @@ def train(model):
 
 
 if __name__ == '__main__':
-    iteration = 500
+    iteration = 5000
     batch_size = 256
     lr = 0.0001
     class_num = 3
@@ -119,7 +119,7 @@ if __name__ == '__main__':
         best_accuracy = 0.0
         best_model = None
 
-        for repeat in range(1):
+        for repeat in range(5):
             cuda = not no_cuda and torch.cuda.is_available()
             current_seed = seed + repeat
             torch.manual_seed(current_seed)
@@ -210,13 +210,13 @@ if __name__ == '__main__':
             # 保存目标域特征：使用预测标签作为类别标签
             np.savez(os.path.join(save_dir, f"target_features.npz"),
                      features=best_tgt_features,
-                     true_labels=best_preds,  # 目标域使用预测标签
+                     true_labels=best_tgt_true_labels,  # 目标域使用预测标签
                      domain_labels=best_tgt_domain_labels
                      )
 
             # 合并所有域的特征用于可视化
             combined_features = np.vstack((best_src_features, best_tgt_features))
-            combined_labels = np.concatenate((best_src_true_labels, best_preds))  # 源域使用真实标签，目标域使用预测标签
+            combined_labels = np.concatenate((best_src_true_labels, best_tgt_true_labels))  # 源域使用真实标签，目标域使用预测标签
             combined_domains = np.concatenate((best_src_domain_labels, best_tgt_domain_labels))
 
             # 保存合并的特征
@@ -234,9 +234,16 @@ if __name__ == '__main__':
                 class_names=class_names,
                 domain_names=domain_names,
                 show=False,
-                save=True
+                save=True,
+                n_components=2
             )
 
+            plotly_visualize_features_multidomain_3d(
+                save_path=combined_path,
+                class_names=class_names,
+                domain_names=domain_names,
+                save_html=True
+            )
             print(f"Task {taskindex}: Best repeat {best_repeat} with accuracy {best_accuracy:.4f}")
 
     print('\n\n' + '=' * 50)
@@ -262,6 +269,19 @@ if __name__ == '__main__':
         print(f'    Outer Race: {avg_class_acc[2]:.4f}')
 
     # 保存所有任务结果到文件
-    results_path = "results/DDC/all_task_results.npz"
-    np.savez(results_path, all_task_results=all_task_results)
-    print(f"\nAll task results saved to {results_path}")
+    results_path_npz = "results/DDC/all_task_results.npz"
+    np.savez(results_path_npz, all_task_results=all_task_results)
+    print(f"\nAll task results (NPZ) saved to {results_path_npz}")
+
+    # 保存为 Markdown 表格
+    results_path_md = "results/DDC/all_task_results.md"
+    with open(results_path_md, 'w') as f:
+        f.write('| TaskIndex | Accuracy | Normal Class Acc | Inner Race Class Acc | Outer Race Class Acc |\n')
+        f.write('|-----------|----------|------------------|----------------------|----------------------|\n')
+        for r in all_task_results:
+            taskindex = r['taskindex']
+            acc = r['target_acc']
+            class_acc = r['target_class_acc']
+            f.write(
+                f"| {taskindex} | {acc:.4f} | {class_acc[0]:.4f} | {class_acc[1]:.4f} | {class_acc[2]:.4f} |\n")
+    print(f"All task results (Markdown) saved to {results_path_md}")

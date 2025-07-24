@@ -11,16 +11,20 @@ import torchvision.datasets as datasets
 
 # 设置参数
 parser = argparse.ArgumentParser()
+# 数据集设置
 parser.add_argument('--data_root', type=str, default='./data', help='数据根目录')
 parser.add_argument('--dataset', type=str, default='PACS', help='数据集: PACS, Office-Home, VLCS')
+# 训练设置
 parser.add_argument('--batch_size', type=int, default=30, help='批大小')
 parser.add_argument('--epochs', type=int, default=40, help='训练轮数')
 parser.add_argument('--lr', type=float, default=0.002, help='学习率')
 parser.add_argument('--momentum', type=float, default=0.9, help='SGD动量')
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='权重衰减')
+# 模型设置
 parser.add_argument('--backbone', type=str, default='resnet18', help='backbone: resnet18, resnet50')
 parser.add_argument('--hidden_dim', type=int, default=128, help='隐藏层维度')
 parser.add_argument('--seed', type=int, default=42, help='随机种子')
+# 损失权重
 parser.add_argument('--lambda_gcn', type=float, default=1.0, help='GCN损失权重')
 parser.add_argument('--lambda_cr', type=float, default=1.0, help='一致性损失权重')
 parser.add_argument('--lambda_adv', type=float, default=0.1, help='对抗损失权重')

@@ -75,6 +75,82 @@ def grad_reverse(x, alpha=1.0):
     return GradientReversalLayer.apply(x, alpha)
 
 
+def weak_augmentation(signal, enable=True, noise_factor=0.01):
+    """
+    弱增强函数：添加随机噪声
+
+    参数:
+        signal: 输入信号 (tensor or numpy array)
+        enable: 是否启用增强
+        noise_factor: 噪声强度因子
+
+    返回:
+        增强后的信号或原始信号
+    """
+    if not enable:
+        return signal
+
+    # 确定信号类型和设备（如果是tensor）
+    if isinstance(signal, torch.Tensor):
+        device = signal.device
+        signal_type = 'tensor'
+        signal_np = signal.cpu().numpy()
+    else:
+        signal_type = 'numpy'
+        signal_np = signal
+
+    # 添加随机噪声
+    noise = np.random.normal(0, noise_factor, signal_np.shape)
+    augmented_signal = signal_np + noise
+
+    # 根据原始类型返回结果
+    if signal_type == 'tensor':
+        return torch.from_numpy(augmented_signal).to(device).type_as(signal)
+    else:
+        return augmented_signal
+
+
+def strong_augmentation(signal, enable=True, noise_factor=0.01, amplitude_factor=0.1):
+    """
+    强增强函数：添加随机噪声并增加幅值扰动
+
+    参数:
+        signal: 输入信号 (tensor or numpy array)
+        enable: 是否启用增强
+        noise_factor: 噪声强度因子
+        amplitude_factor: 幅值扰动因子
+
+    返回:
+        增强后的信号或原始信号
+    """
+    if not enable:
+        return signal
+
+    # 确定信号类型和设备（如果是tensor）
+    if isinstance(signal, torch.Tensor):
+        device = signal.device
+        signal_type = 'tensor'
+        signal_np = signal.cpu().numpy()
+    else:
+        signal_type = 'numpy'
+        signal_np = signal
+
+    # 添加随机噪声
+    noise = np.random.normal(0, noise_factor, signal_np.shape)
+
+    # 添加幅值扰动
+    amplitude_perturbation = 1.0 + np.random.uniform(-amplitude_factor, amplitude_factor)
+
+    # 应用增强
+    augmented_signal = amplitude_perturbation * signal_np + noise
+
+    # 根据原始类型返回结果
+    if signal_type == 'tensor':
+        return torch.from_numpy(augmented_signal).to(device).type_as(signal)
+    else:
+        return augmented_signal
+
+
 def evaluate_model(model, data_loader, class_num=3, return_predictions=False, return_features=False):
     """
     通用模型评估函数
@@ -145,7 +221,7 @@ def evaluate_model(model, data_loader, class_num=3, return_predictions=False, re
     class_accuracy = [class_correct[i] / class_total[i] if class_total[i] > 0 else 0
                       for i in range(class_num)]
 
-    print(f'\n Test set: Average loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({100. * correct / len(test_loader.dataset):.2f}%)')
+    print(f'\n Test set: Average loss: {test_loss:.4f}, Accuracy: {correct}/{len(data_loader.dataset)} ({100. * correct / len(data_loader.dataset):.2f}%)')
     print(f'Class Accuracy: Normal: {100*class_accuracy[0]:.2f}%, Inner Race: {100*class_accuracy[1]:.2f}%, Outer Race: {100*class_accuracy[2]:.2f}%')
 
     # 构建返回结果
@@ -158,7 +234,7 @@ def evaluate_model(model, data_loader, class_num=3, return_predictions=False, re
         result += (all_features, all_domain_labels)
     return result
 
-
+# region 结果可视化
 # 添加可视化函数导入
 import numpy as np
 import matplotlib
@@ -288,7 +364,6 @@ def visualize_features_multidomain(save_path, class_names=None, domain_names=Non
     if show:
         plt.show(block=True)
     plt.close()
-
 
 def plotly_visualize_features_multidomain_3d(save_path, class_names=None, domain_names=None, save_html=True):
     """
@@ -425,3 +500,5 @@ def plot_confusion_matrix_from_data(all_labels, all_preds, class_names, save_pat
         plt.savefig(save_path)
         print(f"Confusion matrix saved to {save_path}")
     plt.close()
+
+# endregion

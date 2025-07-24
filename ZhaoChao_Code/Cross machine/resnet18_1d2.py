@@ -91,7 +91,7 @@ class DeepALL_ADV(nn.Module):
         label_pre=self.cls_fc(feature)
         domain_pre = self.domain_fc(feature)
 
-        return label_pre, domain_pre
+        return label_pre, feature, domain_pre
 
 
 class CNN(nn.Module):

@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from Utility import ConsistencyRegLoss, weak_augmentation, strong_augmentation # 假设 augmentation 在 Utility 中
+from Utility import ConsistencyRegLoss, weak_augmentation, strong_augmentation
 
 
 class DomainInvariantFeaturesLearningNetwork(nn.Module):
