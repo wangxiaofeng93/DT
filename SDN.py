@@ -10,7 +10,7 @@ class SemanticDisentanglementNetwork(nn.Module):
         super(SemanticDisentanglementNetwork, self).__init__()
         self.num_domains = num_domains
 
-        # 领域特定类无关特征提取器 (D_s)
+        # 领域特定类无关特征提取器 (D_s)，每个域一个
         self.domain_specific_disentanglers = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(feature_dim, hidden_dim * 2),
@@ -52,7 +52,7 @@ class SemanticDisentanglementNetwork(nn.Module):
         all_mi_losses = []
 
         for d in range(self.num_domains):
-            # 提取域特定类无关特征
+            # 提取：域特定、类无关特征
             ds_features = self.domain_specific_disentanglers[d](features)
             all_ds_features.append(ds_features)
 

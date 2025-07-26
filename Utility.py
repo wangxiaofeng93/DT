@@ -11,10 +11,11 @@ class EntropyLoss(nn.Module):
         super(EntropyLoss, self).__init__()
 
     def forward(self, x):
+        # 熵定义为：H(X) = -1*Σ p(x) * log(p(x))
         # 最大化熵等价于最小化负熵
         b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
         b = -1.0 * b.sum(dim=1)
-        return b.mean()
+        return -b.mean()
 
 
 class MutualInformationEstimator(nn.Module):

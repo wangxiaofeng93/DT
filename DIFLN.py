@@ -34,6 +34,7 @@ class DomainInvariantFeaturesLearningNetwork(nn.Module):
 
         self.consistency_loss = ConsistencyRegLoss()
 
+    # 前向传播 只到MLP分类器，GCN分支下面定义，但调用计算是在D2IFLN
     def forward(self, features, domain_idx=None):
         # 获取域不变特征
         di_features = self.semantic_disentangler(features)
@@ -72,24 +73,29 @@ class DomainInvariantFeaturesLearningNetwork(nn.Module):
 
     def update_node_features(self, node_features, edge_weights):
         # 简化的GCN节点特征更新
-        batch_size = node_features.size(0)
-        updated_features = node_features.clone()
+        batch_size = node_features.size(0) #获取批次大小，即节点数量
+        updated_features = node_features.clone() #创建节点特征的副本，用于存储更新后的特征。clone() 不会修改原始特征。
 
         for i in range(batch_size):
+            # 初始化一个与单个节点特征形状相同的零张量，用于累积邻居节点的加权特征和。
             weighted_sum = torch.zeros_like(node_features[0])
+            # 初始化权重总和为0，用于后续的归一化计算。
             weight_sum = 0
 
             for j in range(batch_size):
-                if i != j:
-                    weight = edge_weights[i, j]
-                    weighted_sum += weight * node_features[j]
-                    weight_sum += weight
+                if i != j: # 跳过自己
+                    weight = edge_weights[i, j] # 获取两个节点之间的权重
+                    weighted_sum += weight * node_features[j] # 将节点j的特征乘以其对应的边权重，并累加到加权和中。
+                    weight_sum += weight # 累加边权重，用于后续归一化。
 
-            if weight_sum > 0:
+            if weight_sum > 0: # 如果权重总和大于0，则进行归一化
+                # 通过将归一化的邻居特征加权和添加到原始特征上，更新节点i的特征
                 updated_features[i] = updated_features[i] + weighted_sum / weight_sum
 
         return updated_features
 
+
+    # 该函数没起作用，实际在D2IFLN 中计算（方案2）
     def compute_cr_loss(self, features, x_raw, domains):
         batch_size = x_raw.size(0)
         cr_loss = 0
@@ -100,8 +106,15 @@ class DomainInvariantFeaturesLearningNetwork(nn.Module):
                 domain_samples_raw = x_raw[domain_mask]
 
                 # 增强版本 - 注意：需要原始图像数据进行增强
-                weak_aug_samples = weak_augmentation(domain_samples_raw)
-                strong_aug_samples = strong_augmentation(domain_samples_raw)
+                weak_aug_samples = weak_augmentation(
+                                                    domain_samples_raw,
+                                                    enable=True,
+                                                    noise_factor=0.01)
+                strong_aug_samples = strong_augmentation(
+                                                    domain_samples_raw,
+                                                    enable=True,
+                                                    noise_factor= 0.01,
+                                                    amplitude_factor= 0.1)
 
                 # !!! 重要: 需要重新提取增强后样本的特征
                 # !!! 这意味着 feature_extractor 还是需要被访问

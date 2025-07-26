@@ -32,6 +32,10 @@ parser.add_argument('--lambda_ent', type=float, default=1.0, help='熵损失权�
 parser.add_argument('--lambda_mis', type=float, default=1.0, help='SDN MI损失权重')
 parser.add_argument('--lambda_dce', type=float, default=1.0, help='域分类损失权重')
 parser.add_argument('--lambda_mid', type=float, default=1.0, help='DDN MI损失权重')
+
+parser.add_argument('--mode', type=str, help='运行模式')
+parser.add_argument('--port', type=int, help='端口号')
+
 args = parser.parse_args()
 
 # 数据集配置
@@ -142,8 +146,18 @@ def train(model, optimizers, source_loaders, num_domains, device, epoch):
     ddn_stage1_optimizer = optimizers['ddn1']
     ddn_stage2_optimizer = optimizers['ddn2']
 
+    ''' 
+    假设使用PACS数据集，目标域是'sketch'，那么源域为['photo', 'art', 'cartoon']：
+    source_loaders = [
+    (0, photo_data_loader),    # i=0, photo域
+    (1, art_data_loader),      # i=1, art域
+    (2, cartoon_data_loader)   # i=2, cartoon域
+    ]
+    '''
     # 获取数据迭代器
+    # iterators = [iter(photo_data_loader), iter(art_data_loader), iter(cartoon_data_loader)]
     iterators = [iter(loader) for _, loader in source_loaders]
+
     # 计算迭代次数，确保所有域的数据都被遍历大致相同的次数
     num_iters = min([len(loader) for _, loader in source_loaders])
 
@@ -151,10 +165,18 @@ def train(model, optimizers, source_loaders, num_domains, device, epoch):
         # 收集来自各个源域的样本
         all_x, all_y, all_domains = [], [], []
         for domain_idx, iterator in enumerate(iterators):
+            '''
+            enumerate(iterators) 会产生：
+            # (0, iter(photo_data_loader))
+            # (1, iter(art_data_loader))
+            # (2, iter(cartoon_data_loader))
+            '''
             try:
                 x_batch, y_batch = next(iterator)
             except StopIteration:
-                # 如果迭代器耗尽，重新初始化
+                # 即当进入下一个epoch时：源域C的迭代器已经耗、源域A和B的迭代器还有剩余数据
+                # 源域C迭代器耗尽，重新初始化
+                # 🌟 不让任何域的数据因 !!其他域数据少!! 而被浪费。确保数据充分利用：
                 iterators[domain_idx] = iter(source_loaders[domain_idx][1])
                 x_batch, y_batch = next(iterators[domain_idx])
 
@@ -162,32 +184,33 @@ def train(model, optimizers, source_loaders, num_domains, device, epoch):
             all_x.append(x_batch)
             all_y.append(y_batch)
             # 为每个域的样本创建域标签
-            all_domains.append(torch.full((x_batch.size(0),), source_loaders[domain_idx][0], dtype=torch.long, device=device)) # 使用传入的域索引
+            all_domains.append(torch.full((x_batch.size(0),), domain_idx, dtype=torch.long, device=device))
+
 
         # 合并来自所有源域的数据
         x = torch.cat(all_x, dim=0)
         y = torch.cat(all_y, dim=0)
         domains = torch.cat(all_domains, dim=0)
 
-        # --- 算法描述的内部迭代过程 ---
+        # region  算法描述的内部迭代过程
         # 注意：每次 backward 后计算图会被释放，所以在每个优化步骤前需要重新计算损失
         # 这可能效率不高，更优化的方法是只计算当前阶段需要的损失并只反向传播该损失，
         # 但为清晰起见，这里每次都调用 compute_losses 获取所有损失值。
 
-        # 1. 训练 DIFLN (更新 G, Dc, {F_mlp}, F_gcn, Fd)
-        #    损失: mlp_loss, gcn_loss, cr_loss, adv_loss
+        # 1. 训练 DIFLN (更新 G, Dc, {F_mlp}, F_gcn, Fd) 损失: mlp_loss, gcn_loss, cr_loss, adv_loss
         difln_optimizer.zero_grad()
-        # 前向传播并计算所有损失
+        # 前向传播 D2IFLN  获取所有损失值
         losses = model.compute_losses(x, y, domains)
         difln_loss = losses['mlp_loss'] + \
                      args.lambda_gcn * losses['gcn_loss'] + \
                      args.lambda_cr * losses['cr_loss'] + \
                      args.lambda_adv * losses['adv_loss'] # 对抗损失影响 G, Dc, Fd
+        '''PyTorch构建的计算图只包含实际参与计算的节点。
+        在反向传播过程中梯度只会在实际参与计算的参数之间流动,未参与计算的参数不会"吸收"或"分散"梯度'''
         difln_loss.backward()
         difln_optimizer.step()
 
-        # 2. 训练 SDN - 第一阶段 (更新 {D_s^k})
-        #    损失: ent_loss
+        # 2. 训练 SDN - 第一阶段 (更新 {D_s^k}) 损失: ent_loss
         sdn_stage1_optimizer.zero_grad()
         # 需要重新计算损失，因为模型参数已更新
         losses = model.compute_losses(x, y, domains)
@@ -196,29 +219,27 @@ def train(model, optimizers, source_loaders, num_domains, device, epoch):
         sdn_stage1_loss.backward()
         sdn_stage1_optimizer.step()
 
-        # 3. 训练 SDN - 第二阶段 (更新 {Dc, D_s^k, M_s^k})
-        #    损失: mis_loss
+        # 3. 训练 SDN - 第二阶段 (更新 {Dc, D_s^k, M_s^k}) 损失: mis_loss
         sdn_stage2_optimizer.zero_grad()
         losses = model.compute_losses(x, y, domains)
         sdn_stage2_loss = args.lambda_mis * losses['mis_loss']
         sdn_stage2_loss.backward()
         sdn_stage2_optimizer.step()
 
-        # 4. 训练 DDN - 第一阶段 (更新 {Dd, Fd})
-        #    损失: dce_loss
+        # 4. 训练 DDN - 第一阶段 (更新 {Dd, Fd}) 损失: dce_loss
         ddn_stage1_optimizer.zero_grad()
         losses = model.compute_losses(x, y, domains)
         ddn_stage1_loss = args.lambda_dce * losses['dce_loss']
         ddn_stage1_loss.backward()
         ddn_stage1_optimizer.step()
 
-        # 5. 训练 DDN - 第二阶段 (更新 {Dc, Dd, Md})
-        #    损失: mid_loss
+        # 5. 训练 DDN - 第二阶段 (更新 {Dc, Dd, Md})  损失: mid_loss
         ddn_stage2_optimizer.zero_grad()
         losses = model.compute_losses(x, y, domains)
         ddn_stage2_loss = args.lambda_mid * losses['mid_loss']
         ddn_stage2_loss.backward()
         ddn_stage2_optimizer.step()
+        # endregion
 
         # 累加用于日志记录的损失值（使用每个阶段实际反向传播的值）
         total_loss_log += (difln_loss.item() + sdn_stage1_loss.item() +
@@ -230,26 +251,6 @@ def train(model, optimizers, source_loaders, num_domains, device, epoch):
     avg_loss = total_loss_log / num_iters
     print(f'Epoch {epoch}, Avg Iter Loss: {avg_loss:.4f}')
     return avg_loss
-
-
-def collect_samples_from_domains(iterators, source_loaders, device):
-    """从各个源域收集样本"""
-    all_x, all_y, all_domains = [], [], []
-    
-    for domain_idx, iterator in enumerate(iterators):
-        try:
-            x, y = next(iterator)
-        except StopIteration:
-            # 如果迭代器耗尽，重新初始化
-            iterators[domain_idx] = iter(source_loaders[domain_idx][1])
-            x, y = next(iterators[domain_idx])
-            
-        x, y = x.to(device), y.to(device)
-        all_x.append(x)
-        all_y.append(y)
-        all_domains.append(torch.full((x.size(0),), domain_idx, device=device))
-        
-    return all_x, all_y, all_domains
 
 
 # 测试函数
@@ -285,7 +286,7 @@ def train_and_evaluate(target_domain_idx):
     # 注意：模型初始化需要的是源域的数量
     model, device = create_model(num_classes, num_source_domains)
 
-    # --- 创建所有优化器 ---
+    #region --- 创建所有优化器 ---
     # 1. DIFLN优化器
     difln_params = list(model.feature_extractor.parameters()) + \
                    list(model.difln.semantic_disentangler.parameters()) + \
@@ -323,7 +324,7 @@ def train_and_evaluate(target_domain_idx):
         'ddn1': ddn_stage1_optimizer,
         'ddn2': ddn_stage2_optimizer
     }
-    # --- 优化器创建结束 ---
+    # endregion --- 优化器创建结束 ---
 
     # 学习率调度器 (应用到主优化器 difln_optimizer)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(difln_optimizer, T_max=args.epochs)
